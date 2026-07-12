@@ -1,7 +1,7 @@
 #define MyAppName "QiuAi Datamaker"
 #define MyAppExeName "QiuAiDatamaker.exe"
-#define MyAppVersion "1.0.0"
-#define MyBuildDir "dist\QiuAiDatamaker"
+#define MyAppVersion "1.0.2"
+#define MyBuildDir "..\package\QiuAiDatamaker"
 
 [Setup]
 AppId={{F0C7874D-3B24-4F87-A343-DC4F2D6C1F44}
@@ -10,8 +10,8 @@ AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\QiuAi Datamaker
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=installer
-OutputBaseFilename=QiuAiDatamaker-Setup
+OutputDir=..\package
+OutputBaseFilename=QiuAiDatamaker-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

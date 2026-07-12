@@ -17,7 +17,11 @@ def _fingerprint(path: Path) -> str:
 
 
 def _is_openclaw_candidate(path: Path) -> bool:
-    return path.is_file() and path.suffix.lower() == ".jsonl"
+    if not path.is_file() or path.suffix.lower() != ".jsonl":
+        return False
+    if path.name.endswith(".trajectory.jsonl"):
+        return False
+    return True
 
 
 def _is_hermes_candidate(path: Path) -> bool:

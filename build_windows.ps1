@@ -2,7 +2,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$workspaceRoot = Split-Path -Parent $root
 Set-Location $root
+$packageDir = Join-Path $workspaceRoot "package"
 
 $pythonCandidates = @(
     $env:QIUAI_PYTHON,
@@ -40,9 +42,13 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Building QiuAiDatamaker with PyInstaller..."
 
-& $pythonExe -m PyInstaller --noconfirm --clean QiuAiDatamaker.spec
+if (-not (Test-Path $packageDir)) {
+    New-Item -ItemType Directory -Path $packageDir | Out-Null
+}
+
+& $pythonExe -m PyInstaller --noconfirm --clean --distpath $packageDir QiuAiDatamaker.spec
 
 Write-Host ""
 Write-Host "Build complete."
-Write-Host "App directory: $root\dist\QiuAiDatamaker"
+Write-Host "App directory: $packageDir\QiuAiDatamaker"
 Write-Host "Next step: build installer with Inno Setup using installer_windows.iss"

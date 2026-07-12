@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QColor, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QPlainTextEdit,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -35,6 +35,13 @@ from ..constants import (
     DATA_ROOT,
     HERMES_AGENT,
     OPENCLAW_AGENT,
+    PROCESS_STATUS_ERROR,
+    PROCESS_STATUS_EXCLUDED,
+    PROCESS_STATUS_FAIL,
+    PROCESS_STATUS_NEW,
+    PROCESS_STATUS_PASS,
+    PROCESS_STATUS_PROCESSING,
+    PROCESS_STATUS_READY,
     SCENES,
     TARGET_AGENT_RATIO,
     TARGET_MODEL_RATIO,
@@ -43,6 +50,7 @@ from ..constants import (
 )
 from ..exporter import ExportService
 from ..i18n import I18n
+from ..models import SessionRecord
 from ..pipeline import PipelineRunner
 from ..runtime import get_icon_path
 from ..scanner import SourceScanner
@@ -85,6 +93,25 @@ class DropArea(QLabel):
 
 
 class MainWindow(QMainWindow):
+    FILTER_RULES = {
+        "all": None,
+        "pending": {PROCESS_STATUS_NEW, PROCESS_STATUS_READY, PROCESS_STATUS_PROCESSING},
+        "ready": {PROCESS_STATUS_READY},
+        "failed": {PROCESS_STATUS_FAIL, PROCESS_STATUS_ERROR},
+        "pass": {PROCESS_STATUS_PASS},
+        "excluded": {PROCESS_STATUS_EXCLUDED},
+    }
+
+    STATUS_COLORS = {
+        PROCESS_STATUS_NEW: QColor("#FFF7E0"),
+        PROCESS_STATUS_READY: QColor("#E9F7EF"),
+        PROCESS_STATUS_EXCLUDED: QColor("#F2F2F2"),
+        PROCESS_STATUS_PROCESSING: QColor("#E8F1FB"),
+        PROCESS_STATUS_PASS: QColor("#E3F6E8"),
+        PROCESS_STATUS_FAIL: QColor("#FDECEC"),
+        PROCESS_STATUS_ERROR: QColor("#F9E1E1"),
+    }
+
     def __init__(
         self,
         *,
@@ -103,6 +130,7 @@ class MainWindow(QMainWindow):
         self.exporter = ExportService(store, i18n)
         self.config = self.config_store.load()
         self.active_thread: WorkerThread | None = None
+        self.visible_sessions: list[SessionRecord] = []
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
@@ -218,45 +246,68 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        toolbar = QHBoxLayout()
+        top_toolbar = QHBoxLayout()
         self.label_manual_import_agent = QLabel()
         self.import_agent_combo = QComboBox()
         self.import_agent_combo.addItem("OpenClaw", OPENCLAW_AGENT)
         self.import_agent_combo.addItem("Hermes", HERMES_AGENT)
 
-        self.label_scene = QLabel()
-        self.scene_combo = QComboBox()
-
         self.scan_button = QPushButton()
         self.scan_button.clicked.connect(self.scan_sources)
         self.import_button = QPushButton()
         self.import_button.clicked.connect(self.import_files)
+
+        self.label_filter = QLabel()
+        self.batch_filter_combo = QComboBox()
+        self.batch_filter_combo.currentIndexChanged.connect(self.refresh_sessions)
+
+        top_toolbar.addWidget(self.label_manual_import_agent)
+        top_toolbar.addWidget(self.import_agent_combo)
+        top_toolbar.addWidget(self.import_button)
+        top_toolbar.addWidget(self.scan_button)
+        top_toolbar.addSpacing(12)
+        top_toolbar.addWidget(self.label_filter)
+        top_toolbar.addWidget(self.batch_filter_combo)
+        top_toolbar.addStretch()
+        layout.addLayout(top_toolbar)
+
+        action_toolbar = QHBoxLayout()
+        self.label_scene = QLabel()
+        self.scene_combo = QComboBox()
         self.scene_button = QPushButton()
         self.scene_button.clicked.connect(self.apply_scene_to_selected)
+        self.ready_button = QPushButton()
+        self.ready_button.clicked.connect(self.mark_selected_ready)
+        self.exclude_button = QPushButton()
+        self.exclude_button.clicked.connect(self.mark_selected_excluded)
+        self.restore_button = QPushButton()
+        self.restore_button.clicked.connect(self.restore_selected)
         self.process_button = QPushButton()
-        self.process_button.clicked.connect(self.process_selected)
+        self.process_button.clicked.connect(self.process_ready)
         self.retry_button = QPushButton()
         self.retry_button.clicked.connect(self.retry_failed)
 
-        toolbar.addWidget(self.label_manual_import_agent)
-        toolbar.addWidget(self.import_agent_combo)
-        toolbar.addWidget(self.import_button)
-        toolbar.addSpacing(12)
-        toolbar.addWidget(self.label_scene)
-        toolbar.addWidget(self.scene_combo)
-        toolbar.addWidget(self.scene_button)
-        toolbar.addSpacing(12)
-        toolbar.addWidget(self.scan_button)
-        toolbar.addWidget(self.process_button)
-        toolbar.addWidget(self.retry_button)
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
+        action_toolbar.addWidget(self.label_scene)
+        action_toolbar.addWidget(self.scene_combo)
+        action_toolbar.addWidget(self.scene_button)
+        action_toolbar.addWidget(self.ready_button)
+        action_toolbar.addWidget(self.exclude_button)
+        action_toolbar.addWidget(self.restore_button)
+        action_toolbar.addSpacing(12)
+        action_toolbar.addWidget(self.process_button)
+        action_toolbar.addWidget(self.retry_button)
+        action_toolbar.addStretch()
+        layout.addLayout(action_toolbar)
+
+        self.batch_overview_label = QLabel()
+        self.batch_overview_label.setWordWrap(True)
+        layout.addWidget(self.batch_overview_label)
 
         self.drop_area = DropArea(self.i18n)
         self.drop_area.files_dropped.connect(self.handle_dropped_files)
         layout.addWidget(self.drop_area)
 
-        self.session_table = QTableWidget(0, 9)
+        self.session_table = QTableWidget(0, 10)
         self.session_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.session_table.setSelectionMode(QAbstractItemView.MultiSelection)
         self.session_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -397,19 +448,37 @@ class MainWindow(QMainWindow):
         self.tips_text.setPlainText(self.i18n.t("tips_workflow"))
 
         self.label_manual_import_agent.setText(self.i18n.t("label_manual_import_agent"))
+        self.label_filter.setText(self.i18n.t("label_filter"))
         self.label_scene.setText(self.i18n.t("label_scene"))
         self.import_button.setText(self.i18n.t("button_import_files"))
         self.scene_button.setText(self.i18n.t("button_apply_scene"))
-        self.process_button.setText(self.i18n.t("button_process_selected"))
+        self.ready_button.setText(self.i18n.t("button_mark_ready"))
+        self.exclude_button.setText(self.i18n.t("button_mark_excluded"))
+        self.restore_button.setText(self.i18n.t("button_restore"))
+        self.process_button.setText(self.i18n.t("button_process_ready"))
         self.retry_button.setText(self.i18n.t("button_retry_failed"))
         self.scan_button.setText(self.i18n.t("button_scan"))
         self.drop_area.refresh_text()
+
+        selected_scene = self.scene_combo.currentData()
         self.scene_combo.blockSignals(True)
         self.scene_combo.clear()
         self.scene_combo.addItem(self.i18n.t("select_scene"), "")
         for key, _ in SCENES:
             self.scene_combo.addItem(self.i18n.scene_label(key), key)
+        scene_index = max(self.scene_combo.findData(selected_scene), 0)
+        self.scene_combo.setCurrentIndex(scene_index)
         self.scene_combo.blockSignals(False)
+
+        selected_filter = self.batch_filter_combo.currentData()
+        self.batch_filter_combo.blockSignals(True)
+        self.batch_filter_combo.clear()
+        for filter_key in self.FILTER_RULES:
+            self.batch_filter_combo.addItem(self.i18n.t(f"filter.{filter_key}"), filter_key)
+        filter_index = self.batch_filter_combo.findData(selected_filter)
+        self.batch_filter_combo.setCurrentIndex(filter_index if filter_index >= 0 else 0)
+        self.batch_filter_combo.blockSignals(False)
+
         self.session_table.setHorizontalHeaderLabels(
             [
                 self.i18n.t("table_id"),
@@ -417,6 +486,7 @@ class MainWindow(QMainWindow):
                 self.i18n.t("table_agent"),
                 self.i18n.t("table_source"),
                 self.i18n.t("table_scene"),
+                self.i18n.t("table_suggestion"),
                 self.i18n.t("table_model"),
                 self.i18n.t("table_difficulty"),
                 self.i18n.t("table_updated"),
@@ -473,22 +543,54 @@ class MainWindow(QMainWindow):
 
     def refresh_sessions(self) -> None:
         sessions = self.store.list_sessions()
-        self.session_table.setRowCount(len(sessions))
-        for row, session in enumerate(sessions):
+        filter_key = self.batch_filter_combo.currentData() or "all"
+        allowed = self.FILTER_RULES.get(filter_key)
+        if allowed is None:
+            visible_sessions = sessions
+        else:
+            visible_sessions = [session for session in sessions if session.status in allowed]
+
+        self.visible_sessions = visible_sessions
+        self.session_table.setRowCount(len(visible_sessions))
+        for row, session in enumerate(visible_sessions):
             values = [
                 str(session.id),
                 self.i18n.t(f"status.{session.status}"),
                 AGENT_LABELS.get(session.source_agent, session.source_agent),
                 session.source_name,
                 self.i18n.scene_label(session.scene_key) if session.scene_key else "",
+                self.i18n.t(self._suggestion_key(session)),
                 session.model_name,
                 session.difficulty,
                 session.updated_at,
                 session.last_error,
             ]
+            row_color = self.STATUS_COLORS.get(session.status)
             for col, value in enumerate(values):
-                self.session_table.setItem(row, col, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if row_color is not None:
+                    item.setBackground(row_color)
+                if col in {5, 9} and value:
+                    item.setToolTip(value)
+                self.session_table.setItem(row, col, item)
         self.session_table.resizeColumnsToContents()
+
+        pending_count = sum(
+            1
+            for session in sessions
+            if session.status in {PROCESS_STATUS_NEW, PROCESS_STATUS_READY, PROCESS_STATUS_PROCESSING}
+        )
+        ready_count = sum(1 for session in sessions if session.status == PROCESS_STATUS_READY)
+        excluded_count = sum(1 for session in sessions if session.status == PROCESS_STATUS_EXCLUDED)
+        self.batch_overview_label.setText(
+            self.i18n.t(
+                "batch_overview",
+                visible=len(visible_sessions),
+                pending=pending_count,
+                ready=ready_count,
+                excluded=excluded_count,
+            )
+        )
 
     def refresh_quota(self) -> None:
         summary = self.store.summarize()
@@ -556,14 +658,31 @@ class MainWindow(QMainWindow):
             scene_lines.append(self.i18n.t("summary_scene_empty"))
         self.scene_stats.setPlainText("\n".join(scene_lines))
 
-    def _selected_ids(self) -> list[int]:
+    def _selected_records(self) -> list[SessionRecord]:
         selected_rows = sorted({index.row() for index in self.session_table.selectedIndexes()})
-        ids = []
-        for row in selected_rows:
-            item = self.session_table.item(row, 0)
-            if item:
-                ids.append(int(item.text()))
-        return ids
+        return [
+            self.visible_sessions[row]
+            for row in selected_rows
+            if 0 <= row < len(self.visible_sessions)
+        ]
+
+    def _selected_ids(self) -> list[int]:
+        return [record.id for record in self._selected_records()]
+
+    def _suggestion_key(self, session: SessionRecord) -> str:
+        if session.status == PROCESS_STATUS_NEW:
+            return "suggestion.new_with_scene" if session.scene_key else "suggestion.new_no_scene"
+        if session.status == PROCESS_STATUS_READY:
+            return "suggestion.ready"
+        if session.status == PROCESS_STATUS_EXCLUDED:
+            return "suggestion.excluded"
+        if session.status == PROCESS_STATUS_PROCESSING:
+            return "suggestion.processing"
+        if session.status == PROCESS_STATUS_PASS:
+            return "suggestion.pass"
+        if session.status == PROCESS_STATUS_FAIL:
+            return "suggestion.fail"
+        return "suggestion.error"
 
     def apply_scene_to_selected(self) -> None:
         scene_key = self.scene_combo.currentData()
@@ -582,13 +701,88 @@ class MainWindow(QMainWindow):
                 self.i18n.t("msg_no_selection_text"),
             )
             return
-        for session_id in ids:
-            self.store.update_scene(session_id, scene_key)
+        self.store.bulk_apply_scene_ready(ids, scene_key)
         self.refresh_all()
         self.status_bar.showMessage(
             self.i18n.t("status_scene_applied", count=len(ids)),
             3000,
         )
+
+    def mark_selected_ready(self) -> None:
+        records = self._selected_records()
+        if not records:
+            QMessageBox.warning(
+                self,
+                self.i18n.t("msg_no_selection_title"),
+                self.i18n.t("msg_no_selection_text"),
+            )
+            return
+        ready_ids = [
+            record.id
+            for record in records
+            if record.scene_key and record.status not in {PROCESS_STATUS_PASS, PROCESS_STATUS_PROCESSING}
+        ]
+        if not ready_ids:
+            QMessageBox.warning(
+                self,
+                self.i18n.t("msg_no_scene_ready_title"),
+                self.i18n.t("msg_no_scene_ready_text"),
+            )
+            return
+        updated = self.store.bulk_update_status(
+            ready_ids,
+            PROCESS_STATUS_READY,
+            clear_error=True,
+        )
+        self.refresh_all()
+        self.status_bar.showMessage(self.i18n.t("status_marked_ready", count=updated), 3000)
+
+    def mark_selected_excluded(self) -> None:
+        records = self._selected_records()
+        if not records:
+            QMessageBox.warning(
+                self,
+                self.i18n.t("msg_no_selection_title"),
+                self.i18n.t("msg_no_selection_text"),
+            )
+            return
+        excluded_ids = [
+            record.id
+            for record in records
+            if record.status not in {PROCESS_STATUS_PASS, PROCESS_STATUS_PROCESSING}
+        ]
+        updated = self.store.bulk_update_status(
+            excluded_ids,
+            PROCESS_STATUS_EXCLUDED,
+            clear_error=True,
+        )
+        self.refresh_all()
+        self.status_bar.showMessage(
+            self.i18n.t("status_marked_excluded", count=updated),
+            3000,
+        )
+
+    def restore_selected(self) -> None:
+        records = self._selected_records()
+        if not records:
+            QMessageBox.warning(
+                self,
+                self.i18n.t("msg_no_selection_title"),
+                self.i18n.t("msg_no_selection_text"),
+            )
+            return
+        restore_ids = [
+            record.id
+            for record in records
+            if record.status not in {PROCESS_STATUS_PASS, PROCESS_STATUS_PROCESSING}
+        ]
+        updated = self.store.bulk_update_status(
+            restore_ids,
+            PROCESS_STATUS_NEW,
+            clear_error=True,
+        )
+        self.refresh_all()
+        self.status_bar.showMessage(self.i18n.t("status_restored", count=updated), 3000)
 
     def scan_sources(self) -> None:
         self.save_config()
@@ -622,16 +816,15 @@ class MainWindow(QMainWindow):
         self.batch_log.appendPlainText(self.i18n.t("imported_files", count=count))
         self.refresh_all()
 
-    def process_selected(self) -> None:
-        ids = self._selected_ids()
-        if not ids:
-            QMessageBox.warning(
+    def process_ready(self) -> None:
+        records = self.store.list_sessions_by_status([PROCESS_STATUS_READY])
+        if not records:
+            QMessageBox.information(
                 self,
-                self.i18n.t("msg_no_selection_title"),
-                self.i18n.t("msg_no_selection_text"),
+                self.i18n.t("msg_no_ready_title"),
+                self.i18n.t("msg_no_ready_text"),
             )
             return
-        records = self.store.get_sessions_by_ids(ids)
         self.batch_log.appendPlainText(self.i18n.t("process_start", count=len(records)))
         self._run_worker(
             lambda progress: self.pipeline.process_sessions(records, self.config, progress),
@@ -639,11 +832,7 @@ class MainWindow(QMainWindow):
         )
 
     def retry_failed(self) -> None:
-        records = [
-            session
-            for session in self.store.list_sessions()
-            if session.status in ("fail", "error")
-        ]
+        records = self.store.list_sessions_by_status([PROCESS_STATUS_FAIL, PROCESS_STATUS_ERROR])
         if not records:
             QMessageBox.information(
                 self,

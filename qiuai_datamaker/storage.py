@@ -95,6 +95,22 @@ class SessionStore:
             ).fetchall()
         return [SessionRecord(**dict(row)) for row in rows]
 
+    def list_sessions_by_status(self, statuses: Iterable[str]) -> list[SessionRecord]:
+        statuses = list(statuses)
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM sessions
+                WHERE status IN ({placeholders})
+                ORDER BY updated_at DESC, id DESC
+                """,
+                statuses,
+            ).fetchall()
+        return [SessionRecord(**dict(row)) for row in rows]
+
     def get_sessions_by_ids(self, ids: Iterable[int]) -> list[SessionRecord]:
         ids = list(ids)
         if not ids:
@@ -113,6 +129,55 @@ class SessionStore:
                 "UPDATE sessions SET scene_key=?, updated_at=? WHERE id=?",
                 (scene_key, now_text(), session_id),
             )
+
+    def bulk_update_scene(self, session_ids: Iterable[int], scene_key: str) -> int:
+        session_ids = list(session_ids)
+        if not session_ids:
+            return 0
+        now = now_text()
+        with self._connect() as conn:
+            conn.executemany(
+                "UPDATE sessions SET scene_key=?, updated_at=? WHERE id=?",
+                [(scene_key, now, session_id) for session_id in session_ids],
+            )
+        return len(session_ids)
+
+    def bulk_apply_scene_ready(self, session_ids: Iterable[int], scene_key: str) -> int:
+        session_ids = list(session_ids)
+        if not session_ids:
+            return 0
+        now = now_text()
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                UPDATE sessions
+                SET scene_key=?, status='ready', last_error='', updated_at=?
+                WHERE id=?
+                """,
+                [(scene_key, now, session_id) for session_id in session_ids],
+            )
+        return len(session_ids)
+
+    def bulk_update_status(
+        self,
+        session_ids: Iterable[int],
+        status: str,
+        *,
+        clear_error: bool = False,
+    ) -> int:
+        session_ids = list(session_ids)
+        if not session_ids:
+            return 0
+        now = now_text()
+        if clear_error:
+            sql = "UPDATE sessions SET status=?, last_error='', updated_at=? WHERE id=?"
+            params = [(status, now, session_id) for session_id in session_ids]
+        else:
+            sql = "UPDATE sessions SET status=?, updated_at=? WHERE id=?"
+            params = [(status, now, session_id) for session_id in session_ids]
+        with self._connect() as conn:
+            conn.executemany(sql, params)
+        return len(session_ids)
 
     def update_processing_result(
         self,
@@ -165,6 +230,8 @@ class SessionStore:
             "fail": 0,
             "error": 0,
             "new": 0,
+            "ready": 0,
+            "excluded": 0,
             "by_agent": {},
             "by_model": {},
             "by_scene": {},

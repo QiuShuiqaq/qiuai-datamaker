@@ -19,6 +19,7 @@ SUBMISSION_ROOT = DATA_ROOT / "submissions"
 EXPORT_ROOT = DATA_ROOT / "exports"
 CONFIG_PATH = DATA_ROOT / "config.json"
 DB_PATH = DATA_ROOT / "app.db"
+LICENSE_PATH = DATA_ROOT / "activation.json"
 
 SCRIPT_ROOT = RESOURCE_ROOT / "trajectory_scripts"
 
@@ -32,6 +33,7 @@ AGENT_LABELS = {
 
 PROCESS_STATUS_NEW = "new"
 PROCESS_STATUS_READY = "ready"
+PROCESS_STATUS_EXCLUDED = "excluded"
 PROCESS_STATUS_PROCESSING = "processing"
 PROCESS_STATUS_PASS = "pass"
 PROCESS_STATUS_FAIL = "fail"

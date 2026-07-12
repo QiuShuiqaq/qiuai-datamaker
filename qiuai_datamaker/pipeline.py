@@ -95,7 +95,7 @@ class PipelineRunner:
             emit(self.i18n.t("pipeline_conversion_complete", record_id=record.id))
 
             metadata = self._extract_session_metadata(session_dirs[0])
-            qc_result, pass_session_dir, qc_output_dir = self._run_quality_check(
+            qc_result, pass_session_dir, qc_output_dir, qc_details = self._run_quality_check(
                 session_dirs, qc_root, task_logger
             )
             emit(
@@ -107,6 +107,13 @@ class PipelineRunner:
             )
 
             if qc_result != PROCESS_STATUS_PASS or pass_session_dir is None:
+                metadata.update(
+                    {
+                        "qc_errors": qc_details.get("errors", []),
+                        "qc_warnings": qc_details.get("warnings", []),
+                        "qc_stats": qc_details.get("stats", {}),
+                    }
+                )
                 result = ProcessResult(
                     status=PROCESS_STATUS_FAIL,
                     session_id=metadata.get("session_id", ""),
@@ -115,7 +122,7 @@ class PipelineRunner:
                     converted_dir=str(converted_dir),
                     qc_output_dir=str(qc_output_dir),
                     log_path=str(log_path),
-                    last_error=self.i18n.t("pipeline_qc_failed"),
+                    last_error=self._summarize_qc_errors(qc_details.get("errors", [])),
                     metadata=metadata,
                 )
                 self._persist_result(record.id, result)
@@ -210,7 +217,7 @@ class PipelineRunner:
         session_dirs: list[Path],
         qc_root: Path,
         task_logger,
-    ) -> tuple[str, Path | None, Path]:
+    ) -> tuple[str, Path | None, Path, dict]:
         module = get_quality_check_module()
         pass_dir = qc_root / "pass"
         fail_dir = qc_root / "fail"
@@ -221,6 +228,7 @@ class PipelineRunner:
         status = PROCESS_STATUS_FAIL
         pass_session_dir: Path | None = None
         results = []
+        chosen_result: dict | None = None
         for session_dir in session_dirs:
             task_logger.info("Quality check session dir: %s", session_dir)
             result = module.process_session_dir(session_dir, pass_dir, fail_dir)
@@ -228,11 +236,22 @@ class PipelineRunner:
             if result["status"] == "pass":
                 status = PROCESS_STATUS_PASS
                 pass_session_dir = pass_dir / result["session_id"]
+                chosen_result = result
+            elif chosen_result is None:
+                chosen_result = result
 
         report_path = report_dir / "summary.json"
         with report_path.open("w", encoding="utf-8") as handle:
             json.dump(results, handle, ensure_ascii=False, indent=2)
-        return status, pass_session_dir, qc_root
+        return status, pass_session_dir, qc_root, (chosen_result or {})
+
+    def _summarize_qc_errors(self, errors: list[str]) -> str:
+        if not errors:
+            return self.i18n.t("pipeline_qc_failed")
+        summary = " | ".join(error.strip() for error in errors[:2] if error.strip())
+        if len(errors) > 2:
+            summary = f"{summary} ..."
+        return summary or self.i18n.t("pipeline_qc_failed")
 
     def _run_label(
         self,

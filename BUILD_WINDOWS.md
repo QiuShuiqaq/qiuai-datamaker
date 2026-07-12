@@ -13,7 +13,7 @@ pip install pyinstaller
 .\build_windows.ps1
 ```
 
-Output will be generated under `dist/QiuAiDatamaker/`.
+Output will be generated under `../package/QiuAiDatamaker/`.
 
 This build includes:
 
@@ -40,6 +40,8 @@ Recommended installer contents:
 - `QiuAiDatamaker.exe`
 - bundled Python runtime files from PyInstaller
 - bundled `trajectory_scripts`
+
+Installer output will be generated under `../package/QiuAiDatamaker-Setup-<version>.exe`.
 
 ## 4. Runtime Notes
 
