@@ -8,7 +8,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from .config import AppConfig
-from .constants import EXPORT_ROOT, PROCESS_STATUS_PASS
+from .constants import EXPORT_ROOT
 from .i18n import I18n
 from .storage import SessionStore
 
@@ -18,19 +18,19 @@ class ExportService:
         self.store = store
         self.i18n = i18n
 
-    def export_pass_packages(self, config: AppConfig) -> Path:
+    def export_pass_packages(self, config: AppConfig) -> Path | None:
         export_base = Path(config.export_dir) if config.export_dir else EXPORT_ROOT
-        export_dir = export_base / f"submission_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        export_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_dir = export_base / f"submission_export_{export_stamp}"
         packages_dir = export_dir / "packages"
-        packages_dir.mkdir(parents=True, exist_ok=True)
 
         rows = []
-        for session in self.store.list_sessions():
-            if session.status != PROCESS_STATUS_PASS or not session.submission_dir:
-                continue
+        exported_ids: list[int] = []
+        for session in self.store.list_unexported_pass_sessions():
             source_dir = Path(session.submission_dir)
             if not source_dir.exists():
                 continue
+            packages_dir.mkdir(parents=True, exist_ok=True)
             target_dir = packages_dir / source_dir.name
             shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
             rows.append(
@@ -47,9 +47,14 @@ class ExportService:
                     "submission_dir": session.submission_dir,
                 }
             )
+            exported_ids.append(session.id)
+
+        if not rows:
+            return None
 
         self._write_csv(export_dir / "summary.csv", rows)
         self._write_excel(export_dir / "summary.xlsx", rows)
+        self.store.mark_exported(exported_ids, export_dir.name)
         return export_dir
 
     def _write_csv(self, path: Path, rows: list[dict]) -> None:

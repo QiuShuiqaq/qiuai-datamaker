@@ -44,11 +44,24 @@ class SessionStore:
                     log_path TEXT NOT NULL DEFAULT '',
                     source_mtime REAL NOT NULL DEFAULT 0,
                     metadata_json TEXT NOT NULL DEFAULT '{}',
+                    exported_at TEXT NOT NULL DEFAULT '',
+                    export_batch TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "exported_at" not in columns:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN exported_at TEXT NOT NULL DEFAULT ''"
+                )
+            if "export_batch" not in columns:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN export_batch TEXT NOT NULL DEFAULT ''"
+                )
 
     def upsert_session(
         self,
@@ -111,6 +124,19 @@ class SessionStore:
             ).fetchall()
         return [SessionRecord(**dict(row)) for row in rows]
 
+    def list_unexported_pass_sessions(self) -> list[SessionRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM sessions
+                WHERE status='pass'
+                  AND submission_dir <> ''
+                  AND exported_at = ''
+                ORDER BY updated_at DESC, id DESC
+                """
+            ).fetchall()
+        return [SessionRecord(**dict(row)) for row in rows]
+
     def get_sessions_by_ids(self, ids: Iterable[int]) -> list[SessionRecord]:
         ids = list(ids)
         if not ids:
@@ -151,7 +177,8 @@ class SessionStore:
             conn.executemany(
                 """
                 UPDATE sessions
-                SET scene_key=?, status='ready', last_error='', updated_at=?
+                SET scene_key=?, status='ready', last_error='',
+                    exported_at='', export_batch='', updated_at=?
                 WHERE id=?
                 """,
                 [(scene_key, now, session_id) for session_id in session_ids],
@@ -170,10 +197,18 @@ class SessionStore:
             return 0
         now = now_text()
         if clear_error:
-            sql = "UPDATE sessions SET status=?, last_error='', updated_at=? WHERE id=?"
+            sql = """
+                UPDATE sessions
+                SET status=?, last_error='', exported_at='', export_batch='', updated_at=?
+                WHERE id=?
+            """
             params = [(status, now, session_id) for session_id in session_ids]
         else:
-            sql = "UPDATE sessions SET status=?, updated_at=? WHERE id=?"
+            sql = """
+                UPDATE sessions
+                SET status=?, exported_at='', export_batch='', updated_at=?
+                WHERE id=?
+            """
             params = [(status, now, session_id) for session_id in session_ids]
         with self._connect() as conn:
             conn.executemany(sql, params)
@@ -202,7 +237,8 @@ class SessionStore:
                 UPDATE sessions
                 SET status=?, model_name=?, thinking_effort=?, session_id=?, difficulty=?,
                     converted_dir=?, qc_output_dir=?, submission_dir=?, last_error=?,
-                    log_path=?, metadata_json=?, updated_at=?
+                    log_path=?, metadata_json=?, exported_at='', export_batch='',
+                    updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -221,6 +257,41 @@ class SessionStore:
                     session_id,
                 ),
             )
+
+    def mark_exported(self, session_ids: Iterable[int], export_batch: str) -> int:
+        session_ids = list(session_ids)
+        if not session_ids:
+            return 0
+        exported_at = now_text()
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                UPDATE sessions
+                SET exported_at=?, export_batch=?, updated_at=?
+                WHERE id=?
+                """,
+                [
+                    (exported_at, export_batch, exported_at, session_id)
+                    for session_id in session_ids
+                ],
+            )
+        return len(session_ids)
+
+    def clear_export_marks(self, session_ids: Iterable[int]) -> int:
+        session_ids = list(session_ids)
+        if not session_ids:
+            return 0
+        now = now_text()
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                UPDATE sessions
+                SET exported_at='', export_batch='', updated_at=?
+                WHERE id=?
+                """,
+                [(now, session_id) for session_id in session_ids],
+            )
+        return len(session_ids)
 
     def summarize(self) -> dict:
         sessions = self.list_sessions()

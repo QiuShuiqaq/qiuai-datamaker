@@ -1,6 +1,6 @@
 #define MyAppName "QiuAi Datamaker"
 #define MyAppExeName "QiuAiDatamaker.exe"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.4"
 #define MyBuildDir "..\package\QiuAiDatamaker"
 
 [Setup]

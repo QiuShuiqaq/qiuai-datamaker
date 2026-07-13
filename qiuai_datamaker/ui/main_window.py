@@ -274,6 +274,57 @@ class MainWindow(QMainWindow):
         action_toolbar = QHBoxLayout()
         self.label_scene = QLabel()
         self.scene_combo = QComboBox()
+        self.scene_combo.currentIndexChanged.connect(self._update_scene_chip)
+        self.scene_combo.setStyleSheet(
+            """
+            QComboBox {
+                min-height: 32px;
+                padding: 4px 12px;
+                border: 2px solid #cbd5e1;
+                border-radius: 10px;
+                background: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox:focus {
+                border-color: #2563eb;
+            }
+            QComboBox::drop-down {
+                width: 28px;
+                border: 0;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+            }
+            QComboBox QAbstractItemView {
+                selection-background-color: #dbeafe;
+                selection-color: #0f172a;
+                outline: 0;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 28px;
+                padding: 6px 10px;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background: #2563eb;
+                color: #ffffff;
+                font-weight: 700;
+            }
+            """
+        )
+        self.scene_chip = QLabel()
+        self.scene_chip.setAlignment(Qt.AlignCenter)
+        self.scene_chip.setMinimumHeight(32)
+        self.scene_chip.setStyleSheet(
+            """
+            QLabel {
+                padding: 4px 12px;
+                border-radius: 16px;
+                border: 1px solid #cbd5e1;
+                background: #f8fafc;
+                color: #475569;
+                font-weight: 600;
+            }
+            """
+        )
         self.scene_button = QPushButton()
         self.scene_button.clicked.connect(self.apply_scene_to_selected)
         self.ready_button = QPushButton()
@@ -282,6 +333,8 @@ class MainWindow(QMainWindow):
         self.exclude_button.clicked.connect(self.mark_selected_excluded)
         self.restore_button = QPushButton()
         self.restore_button.clicked.connect(self.restore_selected)
+        self.revoke_export_button = QPushButton()
+        self.revoke_export_button.clicked.connect(self.revoke_export_selected)
         self.process_button = QPushButton()
         self.process_button.clicked.connect(self.process_ready)
         self.retry_button = QPushButton()
@@ -289,10 +342,12 @@ class MainWindow(QMainWindow):
 
         action_toolbar.addWidget(self.label_scene)
         action_toolbar.addWidget(self.scene_combo)
+        action_toolbar.addWidget(self.scene_chip)
         action_toolbar.addWidget(self.scene_button)
         action_toolbar.addWidget(self.ready_button)
         action_toolbar.addWidget(self.exclude_button)
         action_toolbar.addWidget(self.restore_button)
+        action_toolbar.addWidget(self.revoke_export_button)
         action_toolbar.addSpacing(12)
         action_toolbar.addWidget(self.process_button)
         action_toolbar.addWidget(self.retry_button)
@@ -406,6 +461,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(text_box)
         return group
 
+    def _localized_text(self, zh_text: str, en_text: str) -> str:
+        return zh_text if self.i18n.language == "zh_CN" else en_text
+
     def _load_config_into_ui(self) -> None:
         self.openclaw_dir_edit.setText(self.config.openclaw_source_dir)
         self.hermes_dir_edit.setText(self.config.hermes_source_dir)
@@ -455,6 +513,7 @@ class MainWindow(QMainWindow):
         self.ready_button.setText(self.i18n.t("button_mark_ready"))
         self.exclude_button.setText(self.i18n.t("button_mark_excluded"))
         self.restore_button.setText(self.i18n.t("button_restore"))
+        self.revoke_export_button.setText(self._localized_text("撤回已导出", "Revoke Export"))
         self.process_button.setText(self.i18n.t("button_process_ready"))
         self.retry_button.setText(self.i18n.t("button_retry_failed"))
         self.scan_button.setText(self.i18n.t("button_scan"))
@@ -469,6 +528,7 @@ class MainWindow(QMainWindow):
         scene_index = max(self.scene_combo.findData(selected_scene), 0)
         self.scene_combo.setCurrentIndex(scene_index)
         self.scene_combo.blockSignals(False)
+        self._update_scene_chip()
 
         selected_filter = self.batch_filter_combo.currentData()
         self.batch_filter_combo.blockSignals(True)
@@ -559,7 +619,7 @@ class MainWindow(QMainWindow):
                 AGENT_LABELS.get(session.source_agent, session.source_agent),
                 session.source_name,
                 self.i18n.scene_label(session.scene_key) if session.scene_key else "",
-                self.i18n.t(self._suggestion_key(session)),
+                self._suggestion_text(session),
                 session.model_name,
                 session.difficulty,
                 session.updated_at,
@@ -657,6 +717,51 @@ class MainWindow(QMainWindow):
         else:
             scene_lines.append(self.i18n.t("summary_scene_empty"))
         self.scene_stats.setPlainText("\n".join(scene_lines))
+
+    def _update_scene_chip(self, _index: int | None = None) -> None:
+        scene_key = self.scene_combo.currentData() or ""
+        for index in range(self.scene_combo.count()):
+            item_key = self.scene_combo.itemData(index) or ""
+            if index == 0:
+                base_text = self.i18n.t("select_scene")
+                text = f"● {base_text}" if not scene_key else base_text
+            else:
+                label = self.i18n.scene_label(item_key)
+                text = f"● {label}" if item_key == scene_key else label
+            self.scene_combo.setItemText(index, text)
+        if scene_key:
+            self.scene_chip.setText(f"● {self.i18n.scene_label(scene_key)}")
+            self.scene_chip.setStyleSheet(
+                """
+                QLabel {
+                    padding: 4px 12px;
+                    border-radius: 16px;
+                    border: 1px solid #93c5fd;
+                    background: #dbeafe;
+                    color: #1d4ed8;
+                    font-weight: 700;
+                }
+                """
+            )
+        else:
+            self.scene_chip.setText(f"● {self.i18n.t('select_scene')}")
+            self.scene_chip.setStyleSheet(
+                """
+                QLabel {
+                    padding: 4px 12px;
+                    border-radius: 16px;
+                    border: 1px solid #cbd5e1;
+                    background: #f8fafc;
+                    color: #64748b;
+                    font-weight: 600;
+                }
+                """
+            )
+
+    def _suggestion_text(self, session: SessionRecord) -> str:
+        if session.status == PROCESS_STATUS_PASS and session.exported_at:
+            return self._localized_text("已导出，可撤回后重新导出", "Exported, revoke to re-export")
+        return self.i18n.t(self._suggestion_key(session))
 
     def _selected_records(self) -> list[SessionRecord]:
         selected_rows = sorted({index.row() for index in self.session_table.selectedIndexes()})
@@ -784,6 +889,32 @@ class MainWindow(QMainWindow):
         self.refresh_all()
         self.status_bar.showMessage(self.i18n.t("status_restored", count=updated), 3000)
 
+    def revoke_export_selected(self) -> None:
+        records = [
+            record
+            for record in self._selected_records()
+            if record.status == PROCESS_STATUS_PASS and record.exported_at
+        ]
+        if not records:
+            QMessageBox.information(
+                self,
+                self._localized_text("没有可撤回的已导出项", "No exported items to revoke"),
+                self._localized_text(
+                    "所选记录里没有已导出的通过项。",
+                    "None of the selected passed items has been exported yet.",
+                ),
+            )
+            return
+        updated = self.store.clear_export_marks(record.id for record in records)
+        self.refresh_all()
+        self.status_bar.showMessage(
+            self._localized_text(
+                f"已撤回 {updated} 条记录的导出状态",
+                f"Revoked export state for {updated} items",
+            ),
+            3000,
+        )
+
     def scan_sources(self) -> None:
         self.save_config()
         self.batch_log.appendPlainText(self.i18n.t("scan_start"))
@@ -864,6 +995,11 @@ class MainWindow(QMainWindow):
         )
 
     def _after_export(self, export_dir) -> None:
+        if not export_dir:
+            export_text = self.i18n.t("export_empty")
+            self.export_log.appendPlainText(export_text)
+            self.status_bar.showMessage(self.i18n.t("status_export_empty"), 5000)
+            return
         export_text = self.i18n.t("export_complete", path=export_dir)
         self.export_log.appendPlainText(export_text)
         self.status_bar.showMessage(

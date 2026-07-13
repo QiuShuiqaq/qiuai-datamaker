@@ -28,6 +28,8 @@ class SessionRecord:
     metadata_json: str
     created_at: str
     updated_at: str
+    exported_at: str = ""
+    export_batch: str = ""
 
     @property
     def updated_at_text(self) -> str:
