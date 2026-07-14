@@ -111,6 +111,7 @@ class MainWindow(QMainWindow):
         PROCESS_STATUS_FAIL: QColor("#FDECEC"),
         PROCESS_STATUS_ERROR: QColor("#F9E1E1"),
     }
+    STATUS_TEXT_COLOR = QColor("#0F172A")
 
     def __init__(
         self,
@@ -139,6 +140,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
 
         self._build_ui()
+        self._apply_visual_theme()
         self._load_config_into_ui()
         self.apply_language()
         self.refresh_all()
@@ -175,6 +177,113 @@ class MainWindow(QMainWindow):
         self.open_data_action = QAction("", self)
         self.open_data_action.triggered.connect(lambda: self._open_path(DATA_ROOT))
         self.menuBar().addAction(self.open_data_action)
+
+    def _apply_visual_theme(self) -> None:
+        self.setStyleSheet(
+            """
+            QMainWindow, QWidget {
+                background: #F7F9FC;
+                color: #0F172A;
+            }
+            QMenuBar {
+                background: #F7F9FC;
+                color: #0F172A;
+            }
+            QMenuBar::item {
+                background: transparent;
+                color: #0F172A;
+                padding: 6px 10px;
+            }
+            QMenuBar::item:selected {
+                background: #E2E8F0;
+                border-radius: 6px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #D7DEE8;
+                background: #FFFFFF;
+            }
+            QTabBar::tab {
+                background: #E9EEF5;
+                color: #334155;
+                padding: 8px 16px;
+                margin-right: 4px;
+                border: 1px solid #D7DEE8;
+                border-bottom: 0;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+            QTabBar::tab:selected {
+                background: #FFFFFF;
+                color: #0F172A;
+                font-weight: 700;
+            }
+            QGroupBox {
+                background: #FFFFFF;
+                color: #0F172A;
+                border: 1px solid #D7DEE8;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 4px;
+                color: #334155;
+            }
+            QLabel {
+                color: #0F172A;
+            }
+            QLineEdit, QPlainTextEdit, QListWidget, QComboBox, QTableWidget {
+                background: #FFFFFF;
+                color: #0F172A;
+                border: 1px solid #CBD5E1;
+                border-radius: 8px;
+                selection-background-color: #DBEAFE;
+                selection-color: #0F172A;
+            }
+            QLineEdit, QComboBox {
+                min-height: 32px;
+                padding: 4px 10px;
+            }
+            QPlainTextEdit, QListWidget, QTableWidget {
+                alternate-background-color: #F8FAFC;
+                gridline-color: #D7DEE8;
+            }
+            QPushButton {
+                background: #FFFFFF;
+                color: #0F172A;
+                border: 1px solid #CBD5E1;
+                border-radius: 8px;
+                padding: 7px 14px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #EFF6FF;
+                border-color: #93C5FD;
+            }
+            QPushButton:pressed {
+                background: #DBEAFE;
+            }
+            QPushButton:disabled {
+                background: #E5E7EB;
+                color: #94A3B8;
+                border-color: #D1D5DB;
+            }
+            QHeaderView::section {
+                background: #E2E8F0;
+                color: #0F172A;
+                border: 0;
+                border-right: 1px solid #CBD5E1;
+                border-bottom: 1px solid #CBD5E1;
+                padding: 8px;
+                font-weight: 700;
+            }
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #F1F5F9;
+            }
+            """
+        )
 
     def _build_guidance_tab(self) -> QWidget:
         widget = QWidget()
@@ -630,6 +739,7 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(value)
                 if row_color is not None:
                     item.setBackground(row_color)
+                item.setForeground(self.STATUS_TEXT_COLOR)
                 if col in {5, 9} and value:
                     item.setToolTip(value)
                 self.session_table.setItem(row, col, item)

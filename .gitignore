@@ -4,3 +4,4 @@ dist/
 installer/
 __pycache__/
 *.pyc
+dataclean/runs/

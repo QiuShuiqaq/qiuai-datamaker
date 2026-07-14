@@ -1,0 +1,2 @@
+{"label":"demo-task-001","turns":["prompt-1","prompt-2","prompt-3","prompt-4","prompt-5"],"thinkingLevel":"max","agentId":"main","minAssistantTextChars":1,"rejectEmptyAssistant":true,"rejectToolResults":true,"rejectToolArtifacts":true,"requireFinalAssistant":true}
+{"label":"demo-task-002","turns":["prompt-1","prompt-2","prompt-3","prompt-4","prompt-5"],"thinkingLevel":"max","agentId":"main","minAssistantTextChars":200,"maxAutoTurns":5,"rejectEmptyAssistant":true,"rejectToolResults":true,"rejectToolArtifacts":true,"requireFinalAssistant":true}

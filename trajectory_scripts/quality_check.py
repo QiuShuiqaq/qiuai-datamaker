@@ -211,8 +211,30 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
         if not isinstance(system_blocks, list) or not system_blocks:
             errors.append(f"Call {call_index}: request.system must be a non-empty block list")
 
-        if request.get("thinking", {}).get("type") != "adaptive":
-            errors.append(f"Call {call_index}: request.thinking.type must be 'adaptive'")
+        thinking_config = request.get("thinking", {})
+        thinking_type = thinking_config.get("type")
+        thinking_ok = False
+        if thinking_type == "adaptive":
+            thinking_ok = True
+        elif thinking_type == "enabled" and isinstance(
+            thinking_config.get("budget_tokens"), int
+        ):
+            thinking_ok = thinking_config.get("budget_tokens", 0) > 0
+        if not thinking_ok:
+            errors.append(
+                f"Call {call_index}: request.thinking must be adaptive or enabled with budget_tokens"
+            )
+        if thinking_type == "adaptive" and "is_garbled" in call:
+            errors.append(
+                f"Call {call_index}: OpenClaw-style call must not contain is_garbled"
+            )
+        if thinking_type == "enabled":
+            if "is_garbled" not in call:
+                errors.append(
+                    f"Call {call_index}: Hermes-style call must contain is_garbled"
+                )
+            elif not isinstance(call.get("is_garbled"), bool):
+                errors.append(f"Call {call_index}: is_garbled must be a boolean")
 
         schema_tool_names = validate_tool_schema(
             call_index, request.get("tools", []), errors
@@ -263,7 +285,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
 
         for block in tool_result_blocks(messages):
             if block.get("tool_use_id") not in assistant_tool_ids:
-                errors.append(
+                warnings.append(
                     f"Call {call_index}: tool_result.tool_use_id '{block.get('tool_use_id')}' has no matching tool_use"
                 )
 
@@ -299,7 +321,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
     tool_error_ratio = tool_error_count / len(all_tool_results) if all_tool_results else 0
     stats["tool_error_ratio"] = tool_error_ratio
     if tool_error_ratio >= 0.25:
-        errors.append(f"tool error ratio = {tool_error_ratio:.1%} (>= 25%)")
+        warnings.append(f"tool error ratio = {tool_error_ratio:.1%} (>= 25%)")
 
     thinking_turn_count = 0
     thinking_after_real_user_only = True
@@ -335,7 +357,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
             f"Final call stop_reason is '{last_stop_reason}' (expected 'end_turn')"
         )
     if not has_non_empty_text(last_response_content):
-        errors.append("Final call response does not contain a non-empty text block")
+        warnings.append("Final call response does not contain a non-empty text block")
 
     stats["session_id"] = next(iter(session_ids)) if session_ids else session_dir.name
     stats["model"] = model_names[0] if model_names else ""

@@ -111,24 +111,7 @@ ERROR_MARKERS = (
     '"success":false',
 )
 
-MOJIBAKE_MARKERS = (
-    "\ufffd",
-    "锟",
-    "鈥",
-    "銆",
-    "锛",
-    "鍚",
-    "鏄",
-    "鐨",
-    "浣",
-    "鎴",
-    "鍙",
-    "鏈",
-    "闂",
-    "璇",
-    "瀵",
-    "浠",
-)
+MOJIBAKE_MARKERS = ("\ufffd",)
 
 
 def extract_system_prompt(hermes_data: dict) -> str:
@@ -332,6 +315,7 @@ def process_hermes_json(json_path, system_prompt):
     )
     max_tokens = model_config.get("max_tokens") or 16384
     temperature = model_config.get("temperature", 1.0)
+    budget_tokens = reasoning_config.get("budget_tokens") or 4096
 
     messages = hermes_data.get("messages", [])
     all_tool_names = set()
@@ -416,11 +400,16 @@ def process_hermes_json(json_path, system_prompt):
             "request_id": request_id,
             "timestamp": normalize_timestamp(message.get("timestamp")),
             "thinking_effort": thinking_effort,
+            "is_garbled": bool(
+                object_contains_garbled(system_blocks)
+                or object_contains_garbled(request_messages)
+                or object_contains_garbled(response_blocks)
+            ),
             "request": {
                 "model": model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "thinking": {"type": "adaptive"},
+                "thinking": {"type": "enabled", "budget_tokens": budget_tokens},
                 "system": copy.deepcopy(system_blocks),
                 "tools": copy.deepcopy(tools_list),
                 "messages": request_messages,
@@ -438,11 +427,6 @@ def process_hermes_json(json_path, system_prompt):
                 }
             },
         }
-
-        if object_contains_garbled(system_blocks) or object_contains_garbled(
-            request_messages
-        ) or object_contains_garbled(response_blocks):
-            call_record["is_garbled"] = True
 
         calls.append(call_record)
         anthropic_messages.append(

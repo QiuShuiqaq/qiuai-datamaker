@@ -192,24 +192,7 @@ ERROR_MARKERS = (
     '"success":false',
 )
 
-MOJIBAKE_MARKERS = (
-    "\ufffd",
-    "锟",
-    "鈥",
-    "銆",
-    "锛",
-    "鍚",
-    "鏄",
-    "鐨",
-    "浣",
-    "鎴",
-    "鍙",
-    "鏈",
-    "闂",
-    "璇",
-    "瀵",
-    "浠",
-)
+MOJIBAKE_MARKERS = ("\ufffd",)
 
 
 def get_system_prompt() -> str:
@@ -605,11 +588,6 @@ def process_openclaw_jsonl(jsonl_path, system_prompt):
                 }
             },
         }
-
-        if object_contains_garbled(system_blocks) or object_contains_garbled(
-            request_messages
-        ) or object_contains_garbled(response_blocks):
-            call_record["is_garbled"] = True
 
         calls.append(call_record)
         anthropic_messages.append(

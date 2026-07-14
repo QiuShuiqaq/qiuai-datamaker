@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable
 
 from openai import OpenAI
@@ -295,10 +296,10 @@ class PipelineRunner:
             json.dump(
                 {
                     "session_id": pass_session_dir.name,
-                    "difficulty": difficulty,
+                    "task_difficulty": difficulty,
                     "justification": parsed.get("justification", ""),
+                    "model": "deepseek/deepseek-v4-pro",
                     "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "api_base": config.deepseek_api_base,
                 },
                 handle,
                 ensure_ascii=False,
@@ -307,7 +308,18 @@ class PipelineRunner:
 
         justification_file = pass_session_dir / "task_difficulty_justification.json"
         with justification_file.open("w", encoding="utf-8") as handle:
-            json.dump(parsed, handle, ensure_ascii=False, indent=2)
+            json.dump(
+                {
+                    "session_id": pass_session_dir.name,
+                    "task_difficulty": difficulty,
+                    "justification": parsed.get("justification", ""),
+                    "model": "deepseek/deepseek-v4-pro",
+                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
         return difficulty
 
     def _build_submission_package(
@@ -340,6 +352,7 @@ class PipelineRunner:
                     "scene_name": scene_name,
                     "session_id": session_id,
                     "source_name": record.source_name,
+                    "submitter": self._extract_submitter_name(record.source_path),
                     "session_dir": target_dir.name,
                 },
                 handle,
@@ -347,6 +360,27 @@ class PipelineRunner:
                 indent=2,
             )
         return package_root
+
+    def _extract_submitter_name(self, source_path: str) -> str:
+        patterns = (
+            re.compile(r"^\d{8}[-_](.+?)[-_]output\d+$", re.IGNORECASE),
+            re.compile(r"^\d{8}[-_](.+?)_output\d+$", re.IGNORECASE),
+        )
+        for part in reversed(self._source_path_parts(source_path)):
+            for pattern in patterns:
+                match = pattern.match(part)
+                if match:
+                    return match.group(1).strip()
+        return ""
+
+    def _source_path_parts(self, source_path: str) -> list[str]:
+        text = str(source_path).strip()
+        if not text:
+            return []
+        try:
+            return [part for part in PureWindowsPath(text).parts if part]
+        except Exception:
+            return [part for part in text.replace("/", "\\").split("\\") if part]
 
     def _persist_result(self, record_id: int, result: ProcessResult) -> None:
         self.store.update_processing_result(

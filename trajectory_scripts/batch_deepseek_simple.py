@@ -88,8 +88,11 @@ def normalize_reply(reply: str) -> tuple[dict, str]:
     parsed = json.loads(reply)
     difficulty = parsed.get("difficulty") or parsed.get("task_difficulty", "")
     normalized = {
+        "session_id": "",
+        "task_difficulty": difficulty,
         "justification": parsed.get("justification", ""),
-        "difficulty": difficulty,
+        "model": "deepseek/deepseek-v4-pro",
+        "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return normalized, difficulty
 
@@ -129,7 +132,13 @@ def main() -> None:
         print(f"[{index}/{len(session_dirs)}] {session_id}")
         last_call = find_last_call_file(session_dir)
         if last_call is None:
-            normalized = {"justification": "No call file found", "difficulty": ""}
+            normalized = {
+                "session_id": session_id,
+                "task_difficulty": "",
+                "justification": "No call file found",
+                "model": "deepseek/deepseek-v4-pro",
+                "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
             difficulty = ""
             print("  [skip] no call file")
         else:
@@ -144,11 +153,18 @@ def main() -> None:
                 )
                 reply = response.choices[0].message.content.strip()
                 normalized, difficulty = normalize_reply(reply)
+                normalized["session_id"] = session_id
                 if difficulty in {"low", "medium", "high", "xhigh", "expert"}:
                     success_count += 1
                 print(f"  [done] difficulty={difficulty or 'empty'}")
             except Exception as exc:
-                normalized = {"justification": str(exc), "difficulty": ""}
+                normalized = {
+                    "session_id": session_id,
+                    "task_difficulty": "",
+                    "justification": str(exc),
+                    "model": "deepseek/deepseek-v4-pro",
+                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
                 difficulty = ""
                 print(f"  [error] {exc}")
 
@@ -157,9 +173,10 @@ def main() -> None:
             json.dump(
                 {
                     "session_id": session_id,
-                    "difficulty": difficulty,
+                    "task_difficulty": difficulty,
+                    "justification": normalized.get("justification", ""),
+                    "model": "deepseek/deepseek-v4-pro",
                     "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "api_base": args.api_base,
                 },
                 handle,
                 ensure_ascii=False,
