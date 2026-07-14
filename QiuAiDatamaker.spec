@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 APP_DIR = Path(SPECPATH)
 REPO_DIR = APP_DIR.parent
-TRAJECTORY_SCRIPT_DIR = REPO_DIR / "trajectory_data_code" / "阿里脚本"
+TRAJECTORY_SCRIPT_DIR = APP_DIR / "trajectory_scripts"
 ICON_DIR = APP_DIR / "icon"
 ICON_FILE = ICON_DIR / "Q1.ico"
 

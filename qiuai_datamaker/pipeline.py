@@ -288,26 +288,26 @@ class PipelineRunner:
         task_logger.info("Label response: %s", reply)
 
         parsed = json.loads(reply)
-        difficulty = parsed.get("task_difficulty", "")
+        difficulty = parsed.get("difficulty") or parsed.get("task_difficulty", "")
         label_root.mkdir(parents=True, exist_ok=True)
-        label_file = label_root / f"{pass_session_dir.name}.jsonl"
+        label_file = label_root / f"{pass_session_dir.name}.json"
         with label_file.open("w", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "session_id": pass_session_dir.name,
-                        "task_difficulty": difficulty,
-                        "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "api_base": config.deepseek_api_base,
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
+            json.dump(
+                {
+                    "session_id": pass_session_dir.name,
+                    "difficulty": difficulty,
+                    "justification": parsed.get("justification", ""),
+                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "api_base": config.deepseek_api_base,
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
             )
 
-        justification_file = pass_session_dir / "task_difficulty_justification.jsonl"
+        justification_file = pass_session_dir / "task_difficulty_justification.json"
         with justification_file.open("w", encoding="utf-8") as handle:
-            handle.write(reply + "\n")
+            json.dump(parsed, handle, ensure_ascii=False, indent=2)
         return difficulty
 
     def _build_submission_package(
@@ -324,13 +324,7 @@ class PipelineRunner:
         if package_root.exists():
             shutil.rmtree(package_root)
 
-        target_dir = (
-            package_root
-            / record.source_agent
-            / model_name
-            / record.scene_key
-            / session_id
-        )
+        target_dir = package_root / session_id
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(pass_session_dir, target_dir)
 
@@ -341,10 +335,12 @@ class PipelineRunner:
                     "record_id": record.id,
                     "agent": record.source_agent,
                     "model": model_name,
+                    "thinking_effort": metadata.get("thinking_effort", ""),
                     "scene_key": record.scene_key,
                     "scene_name": scene_name,
                     "session_id": session_id,
                     "source_name": record.source_name,
+                    "session_dir": target_dir.name,
                 },
                 handle,
                 ensure_ascii=False,
