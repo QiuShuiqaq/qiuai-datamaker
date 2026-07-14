@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -17,13 +18,30 @@ datas = [
 ]
 datas += collect_data_files("openai")
 
+binaries = []
+conda_bin_dir = Path(sys.prefix) / "Library" / "bin"
+required_runtime_dlls = [
+    "libexpat.dll",
+    "libcrypto-3-x64.dll",
+    "libssl-3-x64.dll",
+    "liblzma.dll",
+    "libbz2.dll",
+    "ffi.dll",
+    "sqlite3.dll",
+]
+if conda_bin_dir.exists():
+    for dll_name in required_runtime_dlls:
+        dll_path = conda_bin_dir / dll_name
+        if dll_path.exists():
+            binaries.append((str(dll_path), "."))
+
 hiddenimports = []
 hiddenimports += collect_submodules("openai")
 
 a = Analysis(
     ["app.py"],
     pathex=[str(APP_DIR)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
