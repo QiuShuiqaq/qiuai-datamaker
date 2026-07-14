@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         self.api_key_edit.setEchoMode(QLineEdit.Password)
         self.api_base_edit = QLineEdit()
         self.export_dir_edit = QLineEdit()
+        self.submitter_edit = QLineEdit()
 
         self.label_openclaw_dir = QLabel()
         self.openclaw_browse = QPushButton()
@@ -325,6 +326,9 @@ class MainWindow(QMainWindow):
             self.label_export_dir,
             self._with_browse_button(self.export_dir_edit, self.export_dir_browse),
         )
+
+        self.label_submitter = QLabel()
+        form.addRow(self.label_submitter, self.submitter_edit)
         layout.addWidget(self.path_group)
 
         button_row = QHBoxLayout()
@@ -579,6 +583,7 @@ class MainWindow(QMainWindow):
         self.api_key_edit.setText(self.config.deepseek_api_key)
         self.api_base_edit.setText(self.config.deepseek_api_base)
         self.export_dir_edit.setText(self.config.export_dir)
+        self.submitter_edit.setText(self.config.submitter)
         self.export_target_edit.setText(self.config.export_dir)
 
     def apply_language(self) -> None:
@@ -596,6 +601,7 @@ class MainWindow(QMainWindow):
         self.label_api_key.setText(self.i18n.t("label_api_key"))
         self.label_api_base.setText(self.i18n.t("label_api_base"))
         self.label_export_dir.setText(self.i18n.t("label_export_dir"))
+        self.label_submitter.setText(self.i18n.t("label_submitter"))
         for button in (
             self.openclaw_browse,
             self.hermes_browse,
@@ -694,6 +700,7 @@ class MainWindow(QMainWindow):
             deepseek_api_key=self.api_key_edit.text().strip(),
             deepseek_api_base=self.api_base_edit.text().strip() or "https://api.deepseek.com",
             export_dir=export_dir,
+            submitter=self.submitter_edit.text().strip(),
             language=self.i18n.language,
         )
         self.config_store.save(self.config)

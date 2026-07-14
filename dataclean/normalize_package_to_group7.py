@@ -6,8 +6,6 @@ import shutil
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
-from json import JSONDecoder
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -18,6 +16,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from trajectory_scripts.quality_check import validate_session
+from qiuai_datamaker.group7_validation import (
+    load_normalized_label_payload,
+    write_label_payload,
+)
 
 
 DELIVERY_XLSX_NAME = "\u8d28\u68c0\u63d0\u4ea4\u8bb0\u5f55_v2.xlsx"
@@ -32,7 +34,6 @@ DEFAULT_SUBMITTER = "Claude\u672c\u673a\u81ea\u8dd1"
 DEFAULT_OUTPUT_SUFFIX = "\u7ec47\u6807\u51c6"
 REPORT_SUFFIX = "\u5904\u7406\u62a5\u544a"
 PLACEHOLDER_SIGNATURE = "Eo8E_placeholder_sig"
-LABEL_MODEL = "deepseek/deepseek-v4-pro"
 
 
 @dataclass
@@ -129,19 +130,6 @@ def choose_best_candidate(paths: list[Path]) -> CandidateResult:
     return max(results, key=sort_key)
 
 
-def decode_first_json_object(text: str) -> dict:
-    stripped = text.strip()
-    if not stripped:
-        return {}
-    try:
-        parsed = json.loads(stripped)
-        return parsed if isinstance(parsed, dict) else {}
-    except json.JSONDecodeError:
-        decoder = JSONDecoder()
-        parsed, _ = decoder.raw_decode(stripped)
-        return parsed if isinstance(parsed, dict) else {}
-
-
 def normalize_thinking_blocks(blocks) -> bool:
     changed = False
     if not isinstance(blocks, list):
@@ -195,38 +183,12 @@ def normalize_session_json_files(session_dir: Path, agent_name: str) -> str:
     return model_name
 
 
-def normalize_label_file(session_dir: Path) -> None:
-    json_path = session_dir / "task_difficulty_justification.json"
-    jsonl_path = session_dir / "task_difficulty_justification.jsonl"
-
-    if json_path.exists():
-        with json_path.open("r", encoding="utf-8") as handle:
-            source = json.load(handle)
-    elif jsonl_path.exists():
-        source = decode_first_json_object(jsonl_path.read_text(encoding="utf-8"))
-    else:
-        source = {}
-
-    timestamp_source = json_path if json_path.exists() else jsonl_path if jsonl_path.exists() else None
-    evaluation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if timestamp_source is not None:
-        evaluation_time = datetime.fromtimestamp(timestamp_source.stat().st_mtime).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-    normalized = {
-        "session_id": session_dir.name,
-        "task_difficulty": str(source.get("task_difficulty") or source.get("difficulty") or "").strip(),
-        "justification": str(source.get("justification") or "").strip(),
-        "model": str(source.get("model") or LABEL_MODEL).strip() or LABEL_MODEL,
-        "evaluation_time": str(source.get("evaluation_time") or evaluation_time).strip() or evaluation_time,
-    }
-
-    with json_path.open("w", encoding="utf-8") as handle:
-        json.dump(normalized, handle, ensure_ascii=False, indent=2)
-
-    if jsonl_path.exists():
-        jsonl_path.unlink()
+def normalize_label_file(session_dir: Path) -> list[str]:
+    normalized, errors = load_normalized_label_payload(session_dir)
+    if errors:
+        return errors
+    write_label_payload(session_dir, normalized)
+    return []
 
 
 def write_delivery_xlsx(path: Path, rows: list[dict]) -> None:
@@ -281,7 +243,19 @@ def main() -> int:
             shutil.copytree(chosen.path, target_dir)
 
             normalize_session_json_files(target_dir, agent_name)
-            normalize_label_file(target_dir)
+            label_errors = normalize_label_file(target_dir)
+            if label_errors:
+                shutil.rmtree(target_dir)
+                report["skipped_sessions"].append(
+                    {
+                        "agent": agent_name,
+                        "session_id": session_id,
+                        "source_dir": chosen.path.name,
+                        "errors": label_errors,
+                        "warnings": [],
+                    }
+                )
+                continue
 
             ok, errors, warnings, stats = validate_session(target_dir)
             if not ok:

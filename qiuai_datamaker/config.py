@@ -14,6 +14,7 @@ class AppConfig:
     deepseek_api_key: str = ""
     deepseek_api_base: str = "https://api.deepseek.com"
     export_dir: str = ""
+    submitter: str = ""
     language: str = "zh_CN"
 
 

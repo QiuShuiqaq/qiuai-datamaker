@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from datetime import datetime
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Callable
 
 from openai import OpenAI
@@ -20,6 +19,7 @@ from .constants import (
     SUBMISSION_ROOT,
     WORK_ROOT,
 )
+from .group7_validation import normalize_label_payload, validate_label_payload
 from .i18n import I18n
 from .logging_service import create_task_logger
 from .models import ProcessResult, SessionRecord
@@ -141,7 +141,7 @@ class PipelineRunner:
             )
 
             submission_dir = self._build_submission_package(
-                record, metadata, pass_session_dir
+                record, metadata, pass_session_dir, config
             )
             emit(self.i18n.t("pipeline_submission_created", record_id=record.id))
 
@@ -263,8 +263,9 @@ class PipelineRunner:
         emit: Callable[[str], None],
     ) -> str:
         if not config.deepseek_api_key:
-            task_logger.info("Skip label: no API key configured")
-            return ""
+            raise RuntimeError(
+                "Difficulty labeling is required for Group7 delivery. Configure DeepSeek API key first."
+            )
 
         module = get_label_module()
         last_call = module.find_last_call_file(pass_session_dir)
@@ -289,37 +290,21 @@ class PipelineRunner:
         task_logger.info("Label response: %s", reply)
 
         parsed = json.loads(reply)
-        difficulty = parsed.get("difficulty") or parsed.get("task_difficulty", "")
+        evaluation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        normalized = normalize_label_payload(parsed, pass_session_dir.name, evaluation_time)
+        errors = validate_label_payload(normalized, pass_session_dir.name)
+        if errors:
+            raise RuntimeError(f"Invalid difficulty label output: {'; '.join(errors)}")
+
+        difficulty = normalized["task_difficulty"]
         label_root.mkdir(parents=True, exist_ok=True)
         label_file = label_root / f"{pass_session_dir.name}.json"
         with label_file.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "session_id": pass_session_dir.name,
-                    "task_difficulty": difficulty,
-                    "justification": parsed.get("justification", ""),
-                    "model": "deepseek/deepseek-v4-pro",
-                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                },
-                handle,
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dump(normalized, handle, ensure_ascii=False, indent=2)
 
         justification_file = pass_session_dir / "task_difficulty_justification.json"
         with justification_file.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "session_id": pass_session_dir.name,
-                    "task_difficulty": difficulty,
-                    "justification": parsed.get("justification", ""),
-                    "model": "deepseek/deepseek-v4-pro",
-                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                },
-                handle,
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dump(normalized, handle, ensure_ascii=False, indent=2)
         return difficulty
 
     def _build_submission_package(
@@ -327,6 +312,7 @@ class PipelineRunner:
         record: SessionRecord,
         metadata: dict,
         pass_session_dir: Path,
+        config: AppConfig,
     ) -> Path:
         scene_name = self.i18n.scene_label(record.scene_key)
         model_name = metadata.get("model_name") or "unknown_model"
@@ -352,7 +338,7 @@ class PipelineRunner:
                     "scene_name": scene_name,
                     "session_id": session_id,
                     "source_name": record.source_name,
-                    "submitter": self._extract_submitter_name(record.source_path),
+                    "submitter": config.submitter.strip(),
                     "session_dir": target_dir.name,
                 },
                 handle,
@@ -360,27 +346,6 @@ class PipelineRunner:
                 indent=2,
             )
         return package_root
-
-    def _extract_submitter_name(self, source_path: str) -> str:
-        patterns = (
-            re.compile(r"^\d{8}[-_](.+?)[-_]output\d+$", re.IGNORECASE),
-            re.compile(r"^\d{8}[-_](.+?)_output\d+$", re.IGNORECASE),
-        )
-        for part in reversed(self._source_path_parts(source_path)):
-            for pattern in patterns:
-                match = pattern.match(part)
-                if match:
-                    return match.group(1).strip()
-        return ""
-
-    def _source_path_parts(self, source_path: str) -> list[str]:
-        text = str(source_path).strip()
-        if not text:
-            return []
-        try:
-            return [part for part in PureWindowsPath(text).parts if part]
-        except Exception:
-            return [part for part in text.replace("/", "\\").split("\\") if part]
 
     def _persist_result(self, record_id: int, result: ProcessResult) -> None:
         self.store.update_processing_result(

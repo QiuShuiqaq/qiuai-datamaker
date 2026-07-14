@@ -62,6 +62,8 @@ Provide your response strictly in the following JSON format. Do not include mark
 }}
 """
 
+ALLOWED_DIFFICULTIES = {"low", "medium", "high", "xhigh", "expert"}
+
 
 def _call_sort_key(file_path: Path) -> tuple[int, float]:
     match = re.match(r"^(\d+)_", file_path.stem)
@@ -86,11 +88,19 @@ def find_last_call_file(session_dir: Path) -> Path | None:
 
 def normalize_reply(reply: str) -> tuple[dict, str]:
     parsed = json.loads(reply)
-    difficulty = parsed.get("difficulty") or parsed.get("task_difficulty", "")
+    difficulty = str(parsed.get("difficulty") or parsed.get("task_difficulty", "")).strip().lower()
+    justification = str(parsed.get("justification", "")).strip()
+    if not difficulty:
+        raise ValueError("missing task_difficulty")
+    if difficulty not in ALLOWED_DIFFICULTIES:
+        allowed = ", ".join(sorted(ALLOWED_DIFFICULTIES))
+        raise ValueError(f"invalid task_difficulty '{difficulty}' (allowed: {allowed})")
+    if not justification:
+        raise ValueError("missing justification")
     normalized = {
         "session_id": "",
         "task_difficulty": difficulty,
-        "justification": parsed.get("justification", ""),
+        "justification": justification,
         "model": "deepseek/deepseek-v4-pro",
         "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -154,7 +164,7 @@ def main() -> None:
                 reply = response.choices[0].message.content.strip()
                 normalized, difficulty = normalize_reply(reply)
                 normalized["session_id"] = session_id
-                if difficulty in {"low", "medium", "high", "xhigh", "expert"}:
+                if difficulty in ALLOWED_DIFFICULTIES:
                     success_count += 1
                 print(f"  [done] difficulty={difficulty or 'empty'}")
             except Exception as exc:

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from datetime import datetime
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 from openpyxl import Workbook
 
 from .config import AppConfig
 from .constants import EXPORT_ROOT, HERMES_AGENT
+from .group7_validation import load_normalized_label_payload, write_label_payload
 from .i18n import I18n
 from .storage import SessionStore
 
@@ -47,12 +47,16 @@ class ExportService:
             payload_dir = self._resolve_session_payload_dir(source_dir, metadata)
             if payload_dir is None:
                 continue
+            normalized_label, label_errors = load_normalized_label_payload(payload_dir)
+            if label_errors:
+                continue
 
             agent_dir_name = self._export_agent_dir_name(metadata["agent"])
             session_id = metadata["session_id"]
             target_dir = export_dir / agent_dir_name / session_id
             target_dir.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(payload_dir, target_dir, dirs_exist_ok=True)
+            write_label_payload(target_dir, normalized_label)
 
             rows.append(
                 {
@@ -60,7 +64,7 @@ class ExportService:
                     "export_agent": agent_dir_name,
                     "scene_name": metadata["scene_name"],
                     "session_id": session_id,
-                    "submitter": metadata["submitter"],
+                    "submitter": config.submitter.strip() or metadata.get("submitter", ""),
                     "source_name": session.source_name,
                     "source_path": session.source_path,
                 }
@@ -87,8 +91,7 @@ class ExportService:
             or self.i18n.scene_label(session.scene_key),
             "session_id": metadata.get("session_id") or session.session_id,
             "session_dir": metadata.get("session_dir") or session.session_id,
-            "submitter": metadata.get("submitter")
-            or self._extract_submitter_name(session.source_path),
+            "submitter": metadata.get("submitter", ""),
         }
 
     def _resolve_session_payload_dir(self, source_dir: Path, metadata: dict) -> Path | None:
@@ -146,24 +149,3 @@ class ExportService:
             )
         )
         return delivery_rows
-
-    def _extract_submitter_name(self, source_path: str) -> str:
-        patterns = (
-            re.compile(r"^\d{8}[-_](.+?)[-_]output\d+$", re.IGNORECASE),
-            re.compile(r"^\d{8}[-_](.+?)_output\d+$", re.IGNORECASE),
-        )
-        for part in reversed(self._source_path_parts(source_path)):
-            for pattern in patterns:
-                match = pattern.match(part)
-                if match:
-                    return match.group(1).strip()
-        return ""
-
-    def _source_path_parts(self, source_path: str) -> list[str]:
-        text = str(source_path).strip()
-        if not text:
-            return []
-        try:
-            return [part for part in PureWindowsPath(text).parts if part]
-        except Exception:
-            return [part for part in text.replace("/", "\\").split("\\") if part]
