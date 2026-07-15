@@ -47,6 +47,9 @@ if (-not (Test-Path $packageDir)) {
 }
 
 & $pythonExe -m PyInstaller --noconfirm --clean --distpath $packageDir QiuAiDatamaker.spec
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller build failed with exit code $LASTEXITCODE."
+}
 
 Write-Host ""
 Write-Host "Build complete."

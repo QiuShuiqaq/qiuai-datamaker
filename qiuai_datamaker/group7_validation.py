@@ -2,49 +2,54 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from json import JSONDecoder
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 ALLOWED_TASK_DIFFICULTIES = frozenset({"low", "medium", "high", "xhigh", "expert"})
-LABEL_MODEL = "deepseek/deepseek-v4-pro"
 LABEL_JSON_NAME = "task_difficulty_justification.json"
 LABEL_JSONL_NAME = "task_difficulty_justification.jsonl"
-
-
-def decode_first_json_object(text: str) -> dict:
-    stripped = text.strip()
-    if not stripped:
-        return {}
-    try:
-        parsed = json.loads(stripped)
-        return parsed if isinstance(parsed, dict) else {}
-    except json.JSONDecodeError:
-        decoder = JSONDecoder()
-        parsed, _ = decoder.raw_decode(stripped)
-        return parsed if isinstance(parsed, dict) else {}
+LABEL_FIELDS = (
+    "session_id",
+    "evaluation_time",
+    "api_base",
+    "justification",
+    "task_difficulty",
+)
 
 
 def normalize_label_payload(
     source: dict,
     session_id: str,
     evaluation_time: str,
+    api_base: str,
 ) -> dict[str, str]:
     difficulty = str(source.get("task_difficulty") or source.get("difficulty") or "").strip().lower()
     justification = str(source.get("justification") or "").strip()
-    model = str(source.get("model") or LABEL_MODEL).strip() or LABEL_MODEL
-    timestamp = str(source.get("evaluation_time") or evaluation_time).strip() or evaluation_time
     return {
         "session_id": session_id,
-        "task_difficulty": difficulty,
+        "evaluation_time": evaluation_time,
+        "api_base": api_base,
         "justification": justification,
-        "model": model,
-        "evaluation_time": timestamp,
+        "task_difficulty": difficulty,
     }
 
 
 def validate_label_payload(payload: dict, session_id: str) -> list[str]:
     errors: list[str] = []
+    actual_fields = set(payload)
+    expected_fields = set(LABEL_FIELDS)
+    missing_fields = expected_fields - actual_fields
+    unexpected_fields = actual_fields - expected_fields
+    if missing_fields:
+        errors.append(f"missing fields: {', '.join(sorted(missing_fields))}")
+    if unexpected_fields:
+        errors.append(f"unexpected fields: {', '.join(sorted(unexpected_fields))}")
+
+    for field in LABEL_FIELDS:
+        if field in payload and not isinstance(payload[field], str):
+            errors.append(f"invalid {field}: must be a string")
+
     payload_session_id = str(payload.get("session_id") or "").strip()
     if payload_session_id != session_id:
         errors.append(
@@ -61,37 +66,64 @@ def validate_label_payload(payload: dict, session_id: str) -> list[str]:
     if not str(payload.get("justification") or "").strip():
         errors.append("missing justification")
 
+    evaluation_time = str(payload.get("evaluation_time") or "").strip()
+    if not evaluation_time:
+        errors.append("missing evaluation_time")
+    else:
+        try:
+            parsed_evaluation_time = datetime.strptime(evaluation_time, "%Y-%m-%d %H:%M:%S")
+            if parsed_evaluation_time.strftime("%Y-%m-%d %H:%M:%S") != evaluation_time:
+                raise ValueError
+        except ValueError:
+            errors.append("invalid evaluation_time: expected YYYY-MM-DD HH:MM:SS")
+
+    api_base = str(payload.get("api_base") or "").strip()
+    if not api_base:
+        errors.append("missing api_base")
+    else:
+        parsed_api_base = urlparse(api_base)
+        if parsed_api_base.scheme not in {"http", "https"} or not parsed_api_base.netloc:
+            errors.append("invalid api_base: expected an HTTP(S) URL")
+
     return errors
 
 
 def load_normalized_label_payload(session_dir: Path) -> tuple[dict[str, str], list[str]]:
     json_path = session_dir / LABEL_JSON_NAME
-    jsonl_path = session_dir / LABEL_JSONL_NAME
+    if not json_path.exists():
+        return {}, [f"missing {LABEL_JSON_NAME}"]
 
-    source: dict = {}
-    timestamp_source: Path | None = None
-    if json_path.exists():
+    try:
         with json_path.open("r", encoding="utf-8") as handle:
             source = json.load(handle)
-        timestamp_source = json_path
-    elif jsonl_path.exists():
-        source = decode_first_json_object(jsonl_path.read_text(encoding="utf-8"))
-        timestamp_source = jsonl_path
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {}, [f"invalid {LABEL_JSON_NAME}: {exc}"]
 
-    evaluation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if timestamp_source is not None:
-        evaluation_time = datetime.fromtimestamp(timestamp_source.stat().st_mtime).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+    if not isinstance(source, dict):
+        return {}, [f"invalid {LABEL_JSON_NAME}: root must be a JSON object"]
 
-    normalized = normalize_label_payload(source, session_dir.name, evaluation_time)
-    return normalized, validate_label_payload(normalized, session_dir.name)
+    errors = validate_label_payload(source, session_dir.name)
+    if errors:
+        return {}, errors
+
+    normalized = normalize_label_payload(
+        source,
+        str(source["session_id"]).strip(),
+        str(source["evaluation_time"]).strip(),
+        str(source["api_base"]).strip(),
+    )
+    return normalized, []
 
 
 def write_label_payload(session_dir: Path, payload: dict[str, str]) -> None:
+    errors = validate_label_payload(payload, session_dir.name)
+    if errors:
+        raise ValueError(f"invalid difficulty label: {'; '.join(errors)}")
+
     json_path = session_dir / LABEL_JSON_NAME
     jsonl_path = session_dir / LABEL_JSONL_NAME
     with json_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        ordered_payload = {field: payload[field] for field in LABEL_FIELDS}
+        json.dump(ordered_payload, handle, ensure_ascii=False, indent=4)
     if jsonl_path.exists():
         jsonl_path.unlink()

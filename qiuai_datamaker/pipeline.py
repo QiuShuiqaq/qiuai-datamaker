@@ -291,7 +291,12 @@ class PipelineRunner:
 
         parsed = json.loads(reply)
         evaluation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        normalized = normalize_label_payload(parsed, pass_session_dir.name, evaluation_time)
+        normalized = normalize_label_payload(
+            parsed,
+            pass_session_dir.name,
+            evaluation_time,
+            config.deepseek_api_base,
+        )
         errors = validate_label_payload(normalized, pass_session_dir.name)
         if errors:
             raise RuntimeError(f"Invalid difficulty label output: {'; '.join(errors)}")
@@ -300,11 +305,11 @@ class PipelineRunner:
         label_root.mkdir(parents=True, exist_ok=True)
         label_file = label_root / f"{pass_session_dir.name}.json"
         with label_file.open("w", encoding="utf-8") as handle:
-            json.dump(normalized, handle, ensure_ascii=False, indent=2)
+            json.dump(normalized, handle, ensure_ascii=False, indent=4)
 
         justification_file = pass_session_dir / "task_difficulty_justification.json"
         with justification_file.open("w", encoding="utf-8") as handle:
-            json.dump(normalized, handle, ensure_ascii=False, indent=2)
+            json.dump(normalized, handle, ensure_ascii=False, indent=4)
         return difficulty
 
     def _build_submission_package(

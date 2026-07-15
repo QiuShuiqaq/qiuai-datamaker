@@ -53,6 +53,8 @@ class ExportService:
 
             agent_dir_name = self._export_agent_dir_name(metadata["agent"])
             session_id = metadata["session_id"]
+            if normalized_label["session_id"] != session_id:
+                continue
             target_dir = export_dir / agent_dir_name / session_id
             target_dir.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(payload_dir, target_dir, dirs_exist_ok=True)

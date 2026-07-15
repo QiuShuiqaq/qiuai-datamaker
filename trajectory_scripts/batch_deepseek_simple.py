@@ -86,7 +86,12 @@ def find_last_call_file(session_dir: Path) -> Path | None:
     return call_files[0]
 
 
-def normalize_reply(reply: str) -> tuple[dict, str]:
+def normalize_reply(
+    reply: str,
+    session_id: str,
+    evaluation_time: str,
+    api_base: str,
+) -> tuple[dict, str]:
     parsed = json.loads(reply)
     difficulty = str(parsed.get("difficulty") or parsed.get("task_difficulty", "")).strip().lower()
     justification = str(parsed.get("justification", "")).strip()
@@ -98,11 +103,11 @@ def normalize_reply(reply: str) -> tuple[dict, str]:
     if not justification:
         raise ValueError("missing justification")
     normalized = {
-        "session_id": "",
-        "task_difficulty": difficulty,
+        "session_id": session_id,
+        "evaluation_time": evaluation_time,
+        "api_base": api_base,
         "justification": justification,
-        "model": "deepseek/deepseek-v4-pro",
-        "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "task_difficulty": difficulty,
     }
     return normalized, difficulty
 
@@ -144,10 +149,10 @@ def main() -> None:
         if last_call is None:
             normalized = {
                 "session_id": session_id,
-                "task_difficulty": "",
-                "justification": "No call file found",
-                "model": "deepseek/deepseek-v4-pro",
                 "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "api_base": args.api_base,
+                "justification": "No call file found",
+                "task_difficulty": "",
             }
             difficulty = ""
             print("  [skip] no call file")
@@ -162,40 +167,33 @@ def main() -> None:
                     temperature=0.7,
                 )
                 reply = response.choices[0].message.content.strip()
-                normalized, difficulty = normalize_reply(reply)
-                normalized["session_id"] = session_id
+                normalized, difficulty = normalize_reply(
+                    reply,
+                    session_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    args.api_base,
+                )
                 if difficulty in ALLOWED_DIFFICULTIES:
                     success_count += 1
                 print(f"  [done] difficulty={difficulty or 'empty'}")
             except Exception as exc:
                 normalized = {
                     "session_id": session_id,
-                    "task_difficulty": "",
-                    "justification": str(exc),
-                    "model": "deepseek/deepseek-v4-pro",
                     "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "api_base": args.api_base,
+                    "justification": str(exc),
+                    "task_difficulty": "",
                 }
                 difficulty = ""
                 print(f"  [error] {exc}")
 
         label_file = labels_dir / f"{session_id}.json"
         with label_file.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "session_id": session_id,
-                    "task_difficulty": difficulty,
-                    "justification": normalized.get("justification", ""),
-                    "model": "deepseek/deepseek-v4-pro",
-                    "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                },
-                handle,
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dump(normalized, handle, ensure_ascii=False, indent=4)
 
         justification_file = session_dir / "task_difficulty_justification.json"
         with justification_file.open("w", encoding="utf-8") as handle:
-            json.dump(normalized, handle, ensure_ascii=False, indent=2)
+            json.dump(normalized, handle, ensure_ascii=False, indent=4)
 
     print(f"\n[summary] success={success_count}/{len(session_dirs)}")
     print(f"[done] labels written to {labels_dir}")
