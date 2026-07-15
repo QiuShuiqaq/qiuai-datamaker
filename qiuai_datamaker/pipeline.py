@@ -141,7 +141,7 @@ class PipelineRunner:
             )
 
             submission_dir = self._build_submission_package(
-                record, metadata, pass_session_dir, config
+                record, metadata, pass_session_dir, raw_file, config
             )
             emit(self.i18n.t("pipeline_submission_created", record_id=record.id))
 
@@ -317,6 +317,7 @@ class PipelineRunner:
         record: SessionRecord,
         metadata: dict,
         pass_session_dir: Path,
+        raw_file: Path,
         config: AppConfig,
     ) -> Path:
         scene_name = self.i18n.scene_label(record.scene_key)
@@ -331,6 +332,11 @@ class PipelineRunner:
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(pass_session_dir, target_dir)
 
+        raw_source_dir = package_root / "_raw_source"
+        raw_source_dir.mkdir()
+        raw_snapshot = raw_source_dir / raw_file.name
+        shutil.copy2(raw_file, raw_snapshot)
+
         metadata_file = package_root / "metadata.json"
         with metadata_file.open("w", encoding="utf-8") as handle:
             json.dump(
@@ -343,6 +349,11 @@ class PipelineRunner:
                     "scene_name": scene_name,
                     "session_id": session_id,
                     "source_name": record.source_name,
+                    "original_source_path": record.source_path,
+                    "source_fingerprint": record.fingerprint,
+                    "source_mtime": record.source_mtime,
+                    "import_method": record.import_method,
+                    "raw_source_file": raw_snapshot.relative_to(package_root).as_posix(),
                     "submitter": config.submitter.strip(),
                     "session_dir": target_dir.name,
                 },

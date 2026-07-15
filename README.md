@@ -10,7 +10,16 @@ Windows desktop tool for collecting, processing, checking, labeling, and exporti
 - Assign one of 13 required scene categories
 - Run convert -> quality check -> difficulty label -> submission packaging
 - Track simple operation logs and processing results
-- Export both CSV and Excel summaries
+- Export strict customer delivery packages with a separate raw-source backup
+
+## Export Safety
+
+Every successful export creates two sibling directories:
+
+- `submission_export_<timestamp>`: customer delivery only
+- `raw_source_backup_<timestamp>`: internal raw inputs plus `manifest.json`
+
+The backup manifest maps each raw file to its record and session, and records its SHA256 checksum. Do not include the raw backup directory in the customer delivery.
 
 ## Structure
 

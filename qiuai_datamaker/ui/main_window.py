@@ -1111,16 +1111,22 @@ class MainWindow(QMainWindow):
             self._after_export,
         )
 
-    def _after_export(self, export_dir) -> None:
-        if not export_dir:
+    def _after_export(self, export_result) -> None:
+        if not export_result:
             export_text = self.i18n.t("export_empty")
             self.export_log.appendPlainText(export_text)
             self.status_bar.showMessage(self.i18n.t("status_export_empty"), 5000)
             return
-        export_text = self.i18n.t("export_complete", path=export_dir)
+        export_text = self.i18n.t(
+            "export_complete",
+            path=export_result.delivery_dir,
+            backup_path=export_result.backup_dir,
+            count=export_result.exported_count,
+            skipped=export_result.skipped_count,
+        )
         self.export_log.appendPlainText(export_text)
         self.status_bar.showMessage(
-            self.i18n.t("status_export_complete", path=export_dir),
+            self.i18n.t("status_export_complete", path=export_result.delivery_dir),
             5000,
         )
 
