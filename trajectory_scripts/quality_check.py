@@ -23,16 +23,7 @@ SPECIAL_KEYWORDS = [
     "heartbeat poll",
     "[OpenClaw heartbeat poll]",
 ]
-ERROR_SIGNAL_KEYWORDS = [
-    '"status": "error"',
-    '"status":"error"',
-    '"success": false',
-    '"success":false',
-    "validation failed for tool",
-    "traceback",
-    "exception",
-    "error:",
-]
+ERROR_SIGNAL_KEYWORDS = ['"status": "error"', '"status":"error"']
 
 
 def load_session_calls(session_dir: Path) -> list[dict]:
@@ -86,12 +77,11 @@ def tool_result_blocks(messages: list[dict]) -> list[dict]:
 
 
 def tool_result_is_error(block: dict) -> bool:
-    if block.get("is_error") is True:
+    if block.get("is_error"):
         return True
     content = block.get("content")
     if isinstance(content, str):
-        lowered = content.lower()
-        return any(keyword in lowered for keyword in ERROR_SIGNAL_KEYWORDS)
+        return any(keyword in content for keyword in ERROR_SIGNAL_KEYWORDS)
     return False
 
 
@@ -285,7 +275,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
 
         for block in tool_result_blocks(messages):
             if block.get("tool_use_id") not in assistant_tool_ids:
-                warnings.append(
+                errors.append(
                     f"Call {call_index}: tool_result.tool_use_id '{block.get('tool_use_id')}' has no matching tool_use"
                 )
 
@@ -321,7 +311,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
     tool_error_ratio = tool_error_count / len(all_tool_results) if all_tool_results else 0
     stats["tool_error_ratio"] = tool_error_ratio
     if tool_error_ratio >= 0.25:
-        warnings.append(f"tool error ratio = {tool_error_ratio:.1%} (>= 25%)")
+        errors.append(f"tool error ratio = {tool_error_ratio:.1%} (>= 25%)")
 
     thinking_turn_count = 0
     thinking_after_real_user_only = True
@@ -348,7 +338,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
         errors.append("No non-empty thinking block exists in the trajectory")
     if stats["thinking_density"] <= 0.5:
         errors.append(f"thinking density = {stats['thinking_density']:.1%} (<= 50%)")
-    if thinking_after_real_user_only and thinking_turn_count == assistant_count and assistant_count > 1:
+    if thinking_after_real_user_only and thinking_turn_count > 1:
         errors.append("Thinking appears only on the first assistant turn after each user turn")
 
     last_stop_reason = last_response.get("stop_reason")
@@ -357,7 +347,7 @@ def validate_session(session_dir: Path) -> tuple[bool, list[str], list[str], dic
             f"Final call stop_reason is '{last_stop_reason}' (expected 'end_turn')"
         )
     if not has_non_empty_text(last_response_content):
-        warnings.append("Final call response does not contain a non-empty text block")
+        errors.append("Final call response does not contain a non-empty text block")
 
     stats["session_id"] = next(iter(session_ids)) if session_ids else session_dir.name
     stats["model"] = model_names[0] if model_names else ""

@@ -13,7 +13,10 @@ ICON_DIR = APP_DIR / "icon"
 ICON_FILE = ICON_DIR / "Q1.ico"
 
 datas = [
-    (str(TRAJECTORY_SCRIPT_DIR), "trajectory_scripts"),
+    *(
+        (str(script_path), "trajectory_scripts")
+        for script_path in sorted(TRAJECTORY_SCRIPT_DIR.glob("*.py"))
+    ),
     (str(ICON_DIR), "icon"),
 ]
 datas += collect_data_files("openai")
